@@ -1,98 +1,237 @@
-import 'dart:io';
-import 'package:chat_app/widgets/auth/auth_form.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
+import '/data/controllers/auth_controller.dart';
+//import '/widgets/auth/auth_form.dart';
+//import '/widgets/pickers/user_image_picker.dart';
+import '/core/styles/icon_broken.dart';
+import '/core/utils/components.dart';
 
-class AuthScreen extends StatefulWidget {
-  @override
-  _AuthScreenState createState() => _AuthScreenState();
-}
+class AuthScreen extends StatelessWidget {
 
-class _AuthScreenState extends State<AuthScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
 
-  final _auth = FirebaseAuth.instance;
-  bool _isLoading = false;
-
-  // this fun to SignIn/SignUp and store the user info in the database
-  void _submitAuthForm(String username, String email, String password, File image, bool isLogin, BuildContext ctx) async {
+  // to submit the user info
+  void _submit() {
+    //var controller = Get.find<AuthController>();
+    var controller = Get.put(AuthController());
     
-    // for authentication response
-    UserCredential authResult;
+    // to close the keyboard after the user click on the button
+    Get.focusScope!.unfocus(); //FocusScope.of(context).unfocus();
 
-    try {
-      
-      // to show the CircularProgressIndicator
-      setState(() {
-        _isLoading = true;
-      });
+    // Check image picked
+    if (!controller.isLogin && controller.getPickedImage == null) {
+      showSnackbar('Image Missing', 'Please pick an image');
+      return;
+    }
 
-      if (isLogin) {
-        // to sign user in with email and password
-        authResult = await _auth.signInWithEmailAndPassword(
-          email: email,
-          password: password
-        );
-      } else {
-        // to sign user up with email and password
-        authResult = await _auth.createUserWithEmailAndPassword(
-          email: email,
-          password: password
-        );
-        
-        // to defined the image path
-        final ref = FirebaseStorage.instance
-          .ref()
-          .child('user_image')
-          .child(authResult.user.uid + '.jpg');
-
-        // to upload the image
-        await ref.putFile(image);
-        // to get the image url
-        final url = await ref.getDownloadURL();
-
-        // add the new user to firestore database
-        await FirebaseFirestore.instance.collection("users")
-          .doc(authResult.user.uid).set({
-            'username': username, 
-            'email': email, 
-            'password': password,
-            'image_url': url,
-          });
-      }
-      
-    } on FirebaseAuthException catch (e) {
-      String message = 'Error Occurred';
-      if (e.code == 'weak-password') {
-        message = 'The password provided is too weak.';
-      } else if (e.code == 'email-already-in-use') {
-        message = 'The account already exists for that email.';
-      } else if (e.code == 'user-not-found') {
-        message = 'No user found for that email.';
-      } else if (e.code == 'wrong-password') {
-        message = 'Wrong password provided for that user.';
-      }
-      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-        content: Text(message),
-        //backgroundColor: Theme.of(ctx).errorColor,
-      ));
-      setState(() {
-        _isLoading = false;
-      });
-    } catch (e) {
-      print(e);
-      setState(() {
-        _isLoading = false;
-      });
+    // Check form validation
+    if (_formKey.currentState!.validate()) {
+      _formKey.currentState!.save();
+      controller.submitAuthForm(
+        username: _usernameController.text, 
+        email: _emailController.text, 
+        password: _passwordController.text
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).primaryColor,
-      body: AuthForm(_submitAuthForm, _isLoading),
+      //backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).backgroundColor,
+      //backgroundColor: Theme.of(context).primaryColor,
+      //body: AuthForm(),
+      body: MixinBuilder<AuthController>(
+        init: AuthController(),
+        builder: (controller) => Padding(
+          padding: const EdgeInsets.only(
+            left: 20.0,
+            right: 20.0,
+            top: 30.0
+          ),
+          child: Center(
+            child: SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (controller.isLogin)
+                      Text(
+                        'Welcome Back!',
+                        style: Theme.of(context).textTheme.bodyText2,
+                      ),
+                      // buildText(
+                      //   text: 'Welcome Back!',
+                      //   size: 40.0,
+                      //   weight: FontWeight.bold,
+                      //   family: 'RobotoCondensed',
+                      //   letterSpacing: 1.0,
+                      // ),
+                    if (!controller.isLogin)
+                      Center(
+                        child: CircleAvatar(
+                          radius: 50,
+                          backgroundColor: Get.theme.primaryColor,
+                          backgroundImage: controller.getPickedImage != null
+                            ? FileImage(controller.getPickedImage!)
+                            : null,
+                          child: InkWell(
+                            onTap: () {
+                              buildImagePickerBottomSheet(
+                                onCameraPressed: () {
+                                  controller.pickImage(ImageSource.camera);
+                                  Get.back();
+                                },
+                                onGalleryPressed: () {
+                                  controller.pickImage(ImageSource.gallery);
+                                  Get.back();
+                                },
+                              );
+                            },
+                            child: controller.getPickedImage == null
+                              ? Icon(Icons.add_a_photo, size: 50)
+                              : null,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 30.0),
+                    if (!controller.isLogin)
+                      buildFormField(
+                        controller: _usernameController,
+                        type: TextInputType.text,
+                        validate: (value) {
+                          if (value!.isEmpty || value.length < 4) {
+                            return 'Username must be at least 4 letters';
+                          }
+                          return null;
+                        },
+                        label: 'Username',
+                        prefix: IconBroken.Profile,
+                      ),
+                    const SizedBox(height: 15.0),
+                    buildFormField(
+                      controller: _emailController,
+                      type: TextInputType.emailAddress,
+                      validate: (value) {
+                        if (value.isEmpty || !value.contains('@')) {
+                          return 'Please enter a valid email address';
+                        }
+                        return null;
+                      },
+                      label: 'Email Address',
+                      prefix: IconBroken.Message,
+                    ),
+                    const SizedBox(height: 15.0),
+                    buildFormField(
+                      controller: _passwordController,
+                      type: TextInputType.visiblePassword,
+                      validate: (value) {
+                        if (value.isEmpty || value.length < 7) {
+                          return 'Password is to short';
+                        }
+                        return null;
+                      },
+                      label: 'Password',
+                      isPassword: controller.isPasswordVisible,
+                      prefix: IconBroken.Lock,
+                      suffix: IconButton(
+                        onPressed: () {
+                          controller.changePasswordVisibility();
+                        },
+                        icon: Icon(
+                          controller.isPasswordVisible
+                          ? IconBroken.Hide
+                          : IconBroken.Show,
+                          color: Colors.grey,
+                        )
+                      ),
+                    ),
+                    const SizedBox(height: 20.0),
+                    if (controller.isLoading)
+                      Center(
+                        child: const CircularProgressIndicator()
+                      ),
+                    if (!controller.isLoading)
+                      Container(
+                        width: double.infinity,
+                        height: 50.0,
+                        child: ElevatedButton(
+                          onPressed: () => _submit(),
+                          child: Text(
+                            controller.isLogin
+                              ? 'LOGIN'
+                              : 'REGISTER',
+                              style: Theme.of(context).textTheme.headline1!.copyWith(
+                                color: Colors.white,
+                              ),
+                          ),
+                          // child: buildText(
+                          //   text: controller.isLogin
+                          //     ? 'login'
+                          //     : 'register',
+                          //   size: 22.0,
+                          //   color: Colors.white,
+                          //   isUpperCase: true,
+                          // ),
+                        ),
+                      ),
+                    const SizedBox(height: 10.0),
+                    if (!controller.isLoading)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            controller.isLogin
+                              ? 'Don\'t have an account?'
+                              : 'Already have an account?',
+                              style: Theme.of(context).textTheme.headline2!.copyWith(
+                                fontSize: 18.0,
+                                fontWeight: FontWeight.normal,
+                              ),
+                          ),
+                          // buildText(
+                          //   text: controller.isLogin
+                          //     ? 'Don\'t have an account?'
+                          //     : 'Already have an account?',
+                          //   size: 18,
+                          // ),
+                          TextButton(
+                            onPressed: () {
+                              controller.changeAuthState();
+                            },
+                            child: Text(
+                              controller.isLogin
+                                ? 'REGISTER'
+                                : 'LOGIN',
+                                style: Theme.of(context).textTheme.headline2!.copyWith(
+                                  fontSize: 18.0,
+                                  color: Get.theme.accentColor
+                                ),
+                            ),
+                            // child: buildText(
+                            //   text: controller.isLogin
+                            //     ? 'Register'
+                            //     : 'Login',
+                            //   size: 18,
+                            //   isUpperCase: true,
+                            //   weight: FontWeight.bold,
+                            // ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

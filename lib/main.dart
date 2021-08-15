@@ -1,55 +1,82 @@
-import 'package:chat_app/screens/auth_screen.dart';
-import 'package:chat_app/screens/chat_screen.dart';
-import 'package:chat_app/screens/splash_screen.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:get/get.dart';
+import 'data/controllers/theme_controller.dart';
+import 'data/controllers/user_controller.dart';
+import 'data/providers/cache_provider.dart';
+import 'screens/users_screen.dart';
+import 'screens/auth_screen.dart';
+import 'screens/splash_screen.dart';
+import 'core/themes/theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(); // Initialize Firebase
+  await CacheProvider.init(); // Initialize SharedPreferences
+  Get.put(ThemeController()); // Initialize ThemeController
   runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.pink,
-        backgroundColor: Colors.pink,
-        accentColor: Colors.deepPurple,
-        accentColorBrightness: Brightness.dark,
-        buttonTheme: ButtonTheme.of(context).copyWith(
-          buttonColor: Colors.pink,
-          textTheme: ButtonTextTheme.primary,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ButtonStyle(
-            shape: MaterialStateProperty.all(RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
-            )),
-          ),
-        ),
+    return Obx(() =>
+      GetMaterialApp(
+        debugShowCheckedModeBanner: false,
+        themeMode: Get.find<ThemeController>().themeMode,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: HomePage(),
       ),
-      home: StreamBuilder(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (BuildContext context, AsyncSnapshot snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return SplashScreen();
-          }
-          if (snapshot.hasData) {
-            return ChatScreen();
-          } else {
-            return AuthScreen();
-          }
-        },
-      ),
+    );
+  }
+}
+
+class HomePage extends StatefulWidget {
+  @override
+  _HomePageState createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
+  @override
+  void initState() { 
+    super.initState();
+    WidgetsBinding.instance!.addObserver(this);
+  }
+  
+  @override
+  void dispose() {
+    WidgetsBinding.instance!.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState status) {
+    var controller = Get.find<UserController>();
+    if (status == AppLifecycleState.resumed) {
+      // Online
+      controller.updateUserStatus(isActive: true);
+    } else {
+      // Offline
+      controller.updateUserStatus(isActive: false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: FirebaseAuth.instance.authStateChanges,
+      builder: (BuildContext context, AsyncSnapshot snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return SplashScreen();
+        }
+        if (snapshot.hasData) {
+          return UsersScreen();
+        } else {
+          return AuthScreen();
+        }
+      },
     );
   }
 }
